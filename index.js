@@ -119,14 +119,24 @@ app.post('/logout', async (req, res) => {
 // 2. User Management Endpoints
 // -------------------------------------------------
 
+app.get("/users", async (req, res) => {
+    try {
+        const users = await usersCollection.find().toArray();
+        res.status(200).json(users);
+    } catch (err) {
+        console.error("Error loading users:", err);
+        res.status(500).json({ error: "Failed to load users" });
+    }
+});
+
 // Add/Save user on register/google login
 app.post("/users", async (req, res) => {
-    // const user = req.body;
-    // const query = { email: user.email };
-    // const existingUser = await usersCollection.findOne(query);
-    // if (existingUser) {
-    //     return res.send({ message: "User already exists", insertedId: null });
-    // }
+    const user = req.body;
+    const query = { email: user.email };
+    const existingUser = await usersCollection.findOne(query);
+    if (existingUser) {
+        return res.send({ message: "User already exists", insertedId: null });
+    }
     // Set default role and initial stats
     const newUser = {
         ...user,
