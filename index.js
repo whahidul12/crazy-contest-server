@@ -15,6 +15,58 @@ app.use(express.json());
 app.use(cookieParser());
 
 // =================================================
+// MONGODB SETUP - MODIFIED FOR VERCEL
+// =================================================
+
+const uri = process.env.DB_URI;
+let client;
+let db, usersCollection, contestsCollection, participatedCollection, submissionsCollection;
+
+let isConnected = false;
+
+const connectDB = async () => {
+    if (isConnected && client) {
+        return;
+    }
+
+    try {
+        client = new MongoClient(uri, {
+            serverSelectionTimeoutMS: 5000,
+            maxPoolSize: 10, // Limit connection pool
+        });
+
+        await client.connect();
+
+        db = client.db("contest_craze_db");
+        usersCollection = db.collection("users_collections");
+        contestsCollection = db.collection("contests_collections");
+        participatedCollection = db.collection("participated_collections");
+        submissionsCollection = db.collection("submissions_collections");
+
+        isConnected = true;
+        console.log("MongoDB connected ...");
+    } catch (error) {
+        console.error("MongoDB connection failed:", error);
+        isConnected = false;
+        throw error;
+    }
+};
+
+// Middleware to ensure DB connection before each request
+const ensureDBConnection = async (req, res, next) => {
+    try {
+        await connectDB();
+        next();
+    } catch (error) {
+        console.error("Database connection error:", error);
+        res.status(500).json({ error: "Database connection failed" });
+    }
+};
+
+// Apply to all routes
+app.use(ensureDBConnection);
+
+// =================================================
 // JWT MIDDLEWARE
 // =================================================
 
@@ -34,35 +86,7 @@ const verifyToken = (req, res, next) => {
 };
 
 // =================================================
-// MONGODB SETUP
-// =================================================
-
-const uri = process.env.DB_URI;
-
-let client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
-
-let db, usersCollection, contestsCollection, participatedCollection, submissionsCollection;
-
-const connectDB = async () => {
-    try {
-        await client.connect();
-        db = client.db("contest_craze_db");
-        usersCollection = db.collection("users_collections");
-        contestsCollection = db.collection("contests_collections");
-        participatedCollection = db.collection("participated_collections");
-        submissionsCollection = db.collection("submissions_collections");
-        console.log("MongoDB connected ...");
-    } catch (error) {
-        console.error("MongoDB connection failed:", error);
-        // Exit process or handle error appropriately for production
-    }
-}
-
-connectDB();
-
-
-// =================================================
-// ROLE VERIFICATION MIDDLEWARE (Optional but good practice)
+// ROLE VERIFICATION MIDDLEWARE
 // =================================================
 
 const verifyAdmin = async (req, res, next) => {
@@ -83,7 +107,6 @@ const verifyCreator = async (req, res, next) => {
     next();
 }
 
-
 // =================================================
 // ROUTES
 // =================================================
@@ -101,9 +124,9 @@ app.post('/jwt', async (req, res) => {
     const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
     res.cookie('token', token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === 'production', // Use secure in production
-        sameSite: process.env.NODE_ENV === 'production' ? 'None' : 'Strict', // Use None in production for cross-site cookies
-        maxAge: 3600000 // 1 hour
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'None' : 'Strict',
+        maxAge: 3600000
     }).send({ success: true });
 });
 
@@ -129,7 +152,6 @@ app.get("/users", async (req, res) => {
     }
 });
 
-// Add/Save user on register/google login
 app.post("/users", async (req, res) => {
     const user = req.body;
     const query = { email: user.email };
@@ -137,7 +159,6 @@ app.post("/users", async (req, res) => {
     if (existingUser) {
         return res.send({ message: "User already exists", insertedId: null });
     }
-    // Set default role and initial stats
     const newUser = {
         ...user,
         role: user.role || 'Normal User',
@@ -151,7 +172,6 @@ app.post("/users", async (req, res) => {
     res.status(201).json(result);
 });
 
-// Get user role for dashboard check
 app.get("/users/role/:email", verifyToken, async (req, res) => {
     const email = req.params.email;
     if (email !== req.decoded.email) {
@@ -161,7 +181,6 @@ app.get("/users/role/:email", verifyToken, async (req, res) => {
     res.send({ role: user?.role || 'Normal User' });
 });
 
-// Get single user data
 app.get("/users/:email", verifyToken, async (req, res) => {
     const email = req.params.email;
     if (email !== req.decoded.email) {
@@ -171,7 +190,6 @@ app.get("/users/:email", verifyToken, async (req, res) => {
     res.send(user);
 });
 
-// Update user profile
 app.put("/users/:email", verifyToken, async (req, res) => {
     const email = req.params.email;
     if (email !== req.decoded.email) {
@@ -190,19 +208,16 @@ app.put("/users/:email", verifyToken, async (req, res) => {
     res.send(result);
 });
 
-
 // -------------------------------------------------
 // 3. Contest Endpoints
 // -------------------------------------------------
 
-// Creator: Add new contest
 app.post("/contests", verifyToken, verifyCreator, async (req, res) => {
     const newContest = req.body;
     const result = await contestsCollection.insertOne(newContest);
     res.status(201).json(result);
 });
 
-// Creator: Get all contests created by user
 app.get("/contests/creator/:email", verifyToken, async (req, res) => {
     const email = req.params.email;
     if (email !== req.decoded.email) {
@@ -212,7 +227,6 @@ app.get("/contests/creator/:email", verifyToken, async (req, res) => {
     res.send(contests);
 });
 
-// Creator: Edit contest (only if Pending)
 app.put("/contests/:id", verifyToken, async (req, res) => {
     const id = req.params.id;
     const updatedContest = req.body;
@@ -222,7 +236,6 @@ app.put("/contests/:id", verifyToken, async (req, res) => {
     res.send(result);
 });
 
-// Creator: Delete contest (only if Pending)
 app.delete("/contests/:id", verifyToken, async (req, res) => {
     const id = req.params.id;
     const filter = { _id: new ObjectId(id), creatorEmail: req.decoded.email, status: 'Pending' };
@@ -230,7 +243,6 @@ app.delete("/contests/:id", verifyToken, async (req, res) => {
     res.send(result);
 });
 
-// Public/User: Get all approved contests (with filtering)
 app.get("/contests/approved", async (req, res) => {
     const { type } = req.query;
     let query = { status: 'Confirmed' };
@@ -241,14 +253,12 @@ app.get("/contests/approved", async (req, res) => {
     res.send(contests);
 });
 
-// Get top 6 confirmed contests based on highest participantsCount
 app.get("/contests/popular", async (req, res) => {
     try {
         const popularContests = await contestsCollection.find({ status: 'Confirmed' })
-            .sort({ participantsCount: -1 }) // Sort by participantsCount in descending order
-            .limit(6) // Limit the results to the top 6
+            .sort({ participantsCount: -1 })
+            .limit(6)
             .toArray();
-
         res.send(popularContests);
     } catch (error) {
         console.error("Error fetching popular contests:", error);
@@ -256,14 +266,12 @@ app.get("/contests/popular", async (req, res) => {
     }
 });
 
-// Public: Get a single contest by ID
 app.get("/contests/:id", verifyToken, async (req, res) => {
     const id = req.params.id;
     const contest = await contestsCollection.findOne({ _id: new ObjectId(id) });
     res.send(contest);
 });
 
-// Admin: Get ALL contests (with pagination)
 app.get("/contests/all", verifyToken, verifyAdmin, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -274,11 +282,9 @@ app.get("/contests/all", verifyToken, verifyAdmin, async (req, res) => {
     res.send({ contests, totalCount });
 });
 
-
-// Admin: Update contest status (Confirm/Reject)
 app.patch("/contests/status/:id", verifyToken, verifyAdmin, async (req, res) => {
     const id = req.params.id;
-    const { status } = req.body; // 'Confirmed' or 'Rejected'
+    const { status } = req.body;
     const updateDoc = { $set: { status } };
     const result = await contestsCollection.updateOne({ _id: new ObjectId(id) }, updateDoc);
     res.send(result);
@@ -288,7 +294,6 @@ app.patch("/contests/status/:id", verifyToken, verifyAdmin, async (req, res) => 
 // 4. Participation/Payment Endpoints
 // -------------------------------------------------
 
-// Check if user already registered for a contest
 app.get("/participated/check/:contestId", verifyToken, async (req, res) => {
     const { contestId } = req.params;
     const { email } = req.query;
@@ -304,20 +309,16 @@ app.get("/participated/check/:contestId", verifyToken, async (req, res) => {
     res.send({ isRegistered: !!participation });
 });
 
-// Record successful participation/payment
 app.post("/participated", verifyToken, async (req, res) => {
     const participationInfo = req.body;
 
-    // 1. Record participation
     const result = await participatedCollection.insertOne(participationInfo);
 
-    // 2. Update Contest: Increment participant count
     await contestsCollection.updateOne(
         { _id: new ObjectId(participationInfo.contestId) },
         { $inc: { participantsCount: 1 } }
     );
 
-    // 3. Update User: Increment participatedCount
     await usersCollection.updateOne(
         { email: participationInfo.participantEmail },
         { $inc: { participatedCount: 1 } }
@@ -326,7 +327,6 @@ app.post("/participated", verifyToken, async (req, res) => {
     res.send(result);
 });
 
-// User: Get list of participated contests
 app.get("/participated/:email", verifyToken, async (req, res) => {
     const email = req.params.email;
     if (email !== req.decoded.email) {
@@ -334,11 +334,9 @@ app.get("/participated/:email", verifyToken, async (req, res) => {
     }
     const participatedList = await participatedCollection.find({ participantEmail: email }).toArray();
 
-    // Fetch contest details for name, image, etc.
     const contestIds = participatedList.map(p => new ObjectId(p.contestId));
     const contestsDetails = await contestsCollection.find({ _id: { $in: contestIds } }).toArray();
 
-    // Merge participation info with contest details
     const mergedData = participatedList.map(p => {
         const detail = contestsDetails.find(c => c._id.toString() === p.contestId);
         return {
@@ -356,11 +354,9 @@ app.get("/participated/:email", verifyToken, async (req, res) => {
 // 5. Submission Endpoints
 // -------------------------------------------------
 
-// Record task submission (after successful payment)
 app.post("/submissions", verifyToken, async (req, res) => {
     const submissionInfo = req.body;
 
-    // Check if user actually registered for the contest first
     const isRegistered = await participatedCollection.findOne({
         contestId: submissionInfo.contestId,
         participantEmail: submissionInfo.participantEmail
@@ -370,21 +366,17 @@ app.post("/submissions", verifyToken, async (req, res) => {
         return res.status(403).send({ message: 'User has not registered for this contest.' });
     }
 
-    // Add participant name for creator view
     const user = await usersCollection.findOne({ email: submissionInfo.participantEmail });
     submissionInfo.participantName = user?.name || 'Unknown User';
 
-    // Insert submission
     const result = await submissionsCollection.insertOne(submissionInfo);
     res.send(result);
 });
 
-// Creator: Get submissions for their contests
 app.get("/submissions/creator/:email", verifyToken, verifyCreator, async (req, res) => {
     const creatorEmail = req.params.email;
     const contestIdFilter = req.query.contestId;
 
-    // 1. Get contests created by this user
     let contestQuery = { creatorEmail };
     if (contestIdFilter) {
         contestQuery._id = new ObjectId(contestIdFilter);
@@ -392,17 +384,15 @@ app.get("/submissions/creator/:email", verifyToken, verifyCreator, async (req, r
     const creatorContests = await contestsCollection.find(contestQuery).toArray();
     const contestIds = creatorContests.map(c => c._id.toString());
 
-    // 2. Get submissions for those contest IDs
     const submissions = await submissionsCollection.find({
         contestId: { $in: contestIds }
     }).toArray();
 
-    // 3. Merge contest name into submissions for display
     const mergedSubmissions = submissions.map(sub => {
         const contest = creatorContests.find(c => c._id.toString() === sub.contestId);
         return {
             ...sub,
-            contestName: contest?.name || sub.contestName // Use fetched name if available
+            contestName: contest?.name || sub.contestName
         };
     });
 
@@ -413,29 +403,24 @@ app.get("/submissions/creator/:email", verifyToken, verifyCreator, async (req, r
 // 6. Winner Declaration Endpoints
 // -------------------------------------------------
 
-// Creator: Declare Winner
 app.put("/contests/declare-winner/:id", verifyToken, verifyCreator, async (req, res) => {
     const id = req.params.id;
     const { winnerEmail, submissionId } = req.body;
 
-    // 1. Get Contest details
     const contest = await contestsCollection.findOne({ _id: new ObjectId(id) });
     if (!contest || contest.creatorEmail !== req.decoded.email) {
         return res.status(403).send({ message: 'Forbidden or Contest not found' });
     }
 
-    // 2. Check if deadline passed and winner not declared
     if (new Date() < new Date(contest.deadline) || contest.winner) {
         return res.status(400).send({ message: 'Contest must be ended and winner not declared.' });
     }
 
-    // 3. Get Winner User Info
     const winnerUser = await usersCollection.findOne({ email: winnerEmail });
     if (!winnerUser) {
         return res.status(404).send({ message: 'Winner user not found' });
     }
 
-    // 4. Update Contest: Set winner and status
     const updateContestResult = await contestsCollection.updateOne(
         { _id: new ObjectId(id) },
         {
@@ -446,12 +431,11 @@ app.put("/contests/declare-winner/:id", verifyToken, verifyCreator, async (req, 
                     photo: winnerUser.photo,
                     prizeMoney: contest.prizeMoney
                 },
-                status: 'Closed' // Mark contest as closed
+                status: 'Closed'
             }
         }
     );
 
-    // 5. Update Winner User: Increment wins and recalculate win percentage
     await usersCollection.updateOne(
         { email: winnerEmail },
         [
@@ -472,8 +456,6 @@ app.put("/contests/declare-winner/:id", verifyToken, verifyCreator, async (req, 
     res.send(updateContestResult);
 });
 
-
-// User: Get all winning contests (where user is the declared winner)
 app.get("/contests/winner/:email", verifyToken, async (req, res) => {
     const email = req.params.email;
     if (email !== req.decoded.email) {
@@ -483,29 +465,25 @@ app.get("/contests/winner/:email", verifyToken, async (req, res) => {
     res.send(winningContests);
 });
 
-
 // -------------------------------------------------
 // 7. Leaderboard Endpoints
 // -------------------------------------------------
 
-// Get leaderboard ranked by wins
 app.get("/users/leaderboard", async (req, res) => {
     const leaderboard = await usersCollection.find(
-        { wins: { $gt: 0 } }, // Only include users with at least one win
+        { wins: { $gt: 0 } },
         { projection: { name: 1, email: 1, photo: 1, wins: 1, _id: 1 } }
-    ).sort({ wins: -1, participatedCount: 1 }).limit(10).toArray(); // Rank by wins, then by lower participation count (tie-breaker)
+    ).sort({ wins: -1, participatedCount: 1 }).limit(10).toArray();
 
     res.send(leaderboard);
 });
 
-
 // =======================================================
-// LOCAL DEVELOPMENT
+// SERVER START
 // =======================================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Local server running at http://localhost:${PORT}/`);
+    console.log(`Server running on port ${PORT}`);
 });
-
 
 export default app;
