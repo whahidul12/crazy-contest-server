@@ -10,7 +10,12 @@ import cookieParser from "cookie-parser";
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(
+    cors({
+        origin: "*", // public access for leaderboard
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    })
+);
 app.use(express.json());
 app.use(cookieParser());
 
@@ -116,7 +121,7 @@ app.get("/", (req, res) => {
 });
 
 // -------------------------------------------------
-// 1. JWT / Auth Endpoints
+// 0. JWT / Auth Endpoints
 // -------------------------------------------------
 
 app.post('/jwt', async (req, res) => {
@@ -136,6 +141,20 @@ app.post('/logout', async (req, res) => {
         secure: process.env.NODE_ENV === 'production',
         sameSite: process.env.NODE_ENV === 'production' ? 'None' : 'Strict'
     }).send({ success: true });
+});
+
+// -------------------------------------------------
+// 1. Leaderboard Endpoints
+// -------------------------------------------------
+
+app.get("/users/leaderboard", async (req, res) => {
+    const leaderboard = await usersCollection.find(
+        { wins: { $gt: 0 } },
+        { projection: { name: 1, email: 1, photo: 1, wins: 1, _id: 1 } }
+    ).sort({ wins: -1, participatedCount: 1 }).limit(10).toArray();
+    console.log("i am calling");
+
+    res.send(leaderboard);
 });
 
 // -------------------------------------------------
@@ -463,19 +482,6 @@ app.get("/contests/winner/:email", verifyToken, async (req, res) => {
     }
     const winningContests = await contestsCollection.find({ 'winner.email': email }).toArray();
     res.send(winningContests);
-});
-
-// -------------------------------------------------
-// 7. Leaderboard Endpoints
-// -------------------------------------------------
-
-app.get("/users/leaderboard", async (req, res) => {
-    const leaderboard = await usersCollection.find(
-        { wins: { $gt: 0 } },
-        { projection: { name: 1, email: 1, photo: 1, wins: 1, _id: 1 } }
-    ).sort({ wins: -1, participatedCount: 1 }).limit(10).toArray();
-
-    res.send(leaderboard);
 });
 
 // =======================================================
