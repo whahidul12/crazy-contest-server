@@ -76,10 +76,19 @@ app.use(ensureDBConnection);
 // =================================================
 
 const verifyToken = (req, res, next) => {
-    const token = req.cookies.token;
+    // 1. Check for token in the Authorization Header (Bearer Token)
+    let token = req.headers.authorization;
+    if (token && token.startsWith('Bearer ')) {
+        token = token.split(' ')[1]; // Extract the token string
+    } else {
+        // 2. Fallback check for token in cookies (if you still need it for other routes)
+        token = req.cookies.token;
+    }
+
     if (!token) {
         return res.status(401).send({ message: 'Unauthorized access' });
     }
+
     jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
         if (err) {
             console.error("JWT verification failed:", err);
