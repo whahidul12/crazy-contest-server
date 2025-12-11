@@ -136,7 +136,6 @@ app.get("/", (req, res) => {
 // BACKEND: index.js - Modify the /jwt endpoint
 app.post('/jwt', async (req, res) => {
     const user = req.body;
-    console.log(user);
     const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
     res.send({ token: token, success: true });
 });
@@ -206,6 +205,29 @@ app.get("/users/role/:email", verifyToken, async (req, res) => {
     res.send({ role: user?.role || 'Normal User' });
 });
 
+app.patch("/users/role/:id", verifyToken, verifyAdmin, async (req, res) => {
+    const id = req.params.id;
+    const { role } = req.body;
+
+    // Ensure the ID is a valid ObjectId
+    if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ message: 'Invalid User ID' });
+    }
+
+    const filter = { _id: new ObjectId(id) };
+    const updateDoc = {
+        $set: { role: role }
+    };
+
+    try {
+        const result = await usersCollection.updateOne(filter, updateDoc);
+        res.send(result);
+    } catch (error) {
+        console.error("Error updating user role:", error);
+        res.status(500).send({ message: "Failed to update role" });
+    }
+});
+
 app.get("/users/:email", verifyToken, async (req, res) => {
     const email = req.params.email;
     if (email !== req.decoded.email) {
@@ -252,22 +274,6 @@ app.get("/contests/creator/:email", verifyToken, async (req, res) => {
     res.send(contests);
 });
 
-app.put("/contests/:id", verifyToken, async (req, res) => {
-    const id = req.params.id;
-    const updatedContest = req.body;
-    const filter = { _id: new ObjectId(id), creatorEmail: req.decoded.email, status: 'Pending' };
-    const updateDoc = { $set: updatedContest };
-    const result = await contestsCollection.updateOne(filter, updateDoc);
-    res.send(result);
-});
-
-app.delete("/contests/:id", verifyToken, async (req, res) => {
-    const id = req.params.id;
-    const filter = { _id: new ObjectId(id), creatorEmail: req.decoded.email, status: 'Pending' };
-    const result = await contestsCollection.deleteOne(filter);
-    res.send(result);
-});
-
 app.get("/contests/approved", async (req, res) => {
     const { type } = req.query;
     let query = { status: 'Confirmed' };
@@ -291,13 +297,20 @@ app.get("/contests/popular", async (req, res) => {
     }
 });
 
-app.get("/contests/:id", verifyToken, async (req, res) => {
+app.put("/contests/:id", verifyToken, async (req, res) => {
     const id = req.params.id;
-    const contest = await contestsCollection.findOne({ _id: new ObjectId(id) });
-    res.send(contest);
+    if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ message: 'Invalid Contest ID format' });
+    }
+    const updatedContest = req.body;
+    const filter = { _id: new ObjectId(id), creatorEmail: req.decoded.email, status: 'Pending' };
+    const updateDoc = { $set: updatedContest };
+    const result = await contestsCollection.updateOne(filter, updateDoc);
+    res.send(result);
 });
 
 app.get("/contests/all", verifyToken, verifyAdmin, async (req, res) => {
+    console.log("ALL Contest==============");
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -307,8 +320,34 @@ app.get("/contests/all", verifyToken, verifyAdmin, async (req, res) => {
     res.send({ contests, totalCount });
 });
 
+app.delete("/contests/:id", verifyToken, async (req, res) => {
+    const id = req.params.id;
+    if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ message: 'Invalid Contest ID format' });
+    }
+    const filter = { _id: new ObjectId(id), creatorEmail: req.decoded.email, status: 'Pending' };
+    const result = await contestsCollection.deleteOne(filter);
+    res.send(result);
+});
+
+
+
+app.get("/contests/:id", verifyToken, async (req, res) => {
+    const id = req.params.id;
+    if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ message: 'Invalid Contest ID format' });
+    }
+    const contest = await contestsCollection.findOne({ _id: new ObjectId(id) });
+    res.send(contest);
+});
+
+
+
 app.patch("/contests/status/:id", verifyToken, verifyAdmin, async (req, res) => {
     const id = req.params.id;
+    if (!ObjectId.isValid(id)) {
+        return res.status(400).send({ message: 'Invalid Contest ID format' });
+    }
     const { status } = req.body;
     const updateDoc = { $set: { status } };
     const result = await contestsCollection.updateOne({ _id: new ObjectId(id) }, updateDoc);
