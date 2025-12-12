@@ -5,19 +5,17 @@ import express from "express";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import jwt from "jsonwebtoken";
-import cookieParser from "cookie-parser";
 
 const app = express();
 
 // Middleware
 app.use(
     cors({
-        origin: "*", // public access for leaderboard
+        origin: "*",
         methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     })
 );
 app.use(express.json());
-app.use(cookieParser());
 
 // =================================================
 // MONGODB SETUP - MODIFIED FOR VERCEL
@@ -133,7 +131,6 @@ app.get("/", (req, res) => {
 // 0. JWT / Auth Endpoints
 // -------------------------------------------------
 
-// BACKEND: index.js - Modify the /jwt endpoint
 app.post('/jwt', async (req, res) => {
     const user = req.body;
     const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
@@ -461,6 +458,23 @@ app.get("/submissions/creator/:email", verifyToken, verifyCreator, async (req, r
     });
 
     res.send(mergedSubmissions);
+});
+
+app.get("/submissions/check/:contestId", verifyToken, async (req, res) => {
+    const { contestId } = req.params;
+    const { email } = req.query;
+
+    if (email !== req.decoded.email) {
+        return res.status(403).send({ message: 'Forbidden access' });
+    }
+
+    const submission = await submissionsCollection.findOne({
+        contestId,
+        participantEmail: email
+    });
+
+    // Return true if a submission is found, false otherwise
+    res.send({ hasSubmitted: !!submission });
 });
 
 // -------------------------------------------------
