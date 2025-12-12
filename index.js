@@ -320,9 +320,11 @@ app.get("/contests/all", verifyToken, verifyAdmin, async (req, res) => {
 app.delete("/contests/:id", verifyToken, async (req, res) => {
     const id = req.params.id;
     if (!ObjectId.isValid(id)) {
+        console.log("????");
         return res.status(400).send({ message: 'Invalid Contest ID format' });
     }
-    const filter = { _id: new ObjectId(id), creatorEmail: req.decoded.email, status: 'Pending' };
+    const filter = { _id: new ObjectId(id) };
+    console.log(filter);
     const result = await contestsCollection.deleteOne(filter);
     res.send(result);
 });
