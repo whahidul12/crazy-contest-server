@@ -280,6 +280,15 @@ app.get("/contests/approved", async (req, res) => {
     const contests = await contestsCollection.find(query).sort({ participantsCount: -1 }).toArray();
     res.send(contests);
 });
+app.get("/contests/closed", async (req, res) => {
+    const { type } = req.query;
+    let query = { status: 'Closed' };
+    if (type && type !== 'All') {
+        query.type = type;
+    }
+    const contests = await contestsCollection.find(query).sort({ participantsCount: -1 }).toArray();
+    res.send(contests);
+});
 
 app.get("/contests/popular", async (req, res) => {
     try {
