@@ -76,12 +76,10 @@ app.use(ensureDBConnection);
 // =================================================
 
 const verifyToken = (req, res, next) => {
-    // 1. Check for token in the Authorization Header (Bearer Token)
     let token = req.headers.authorization;
     if (token && token.startsWith('Bearer ')) {
-        token = token.split(' ')[1]; // Extract the token string
+        token = token.split(' ')[1];
     } else {
-        // 2. Fallback check for token in cookies (if you still need it for other routes)
         token = req.cookies.token;
     }
 
@@ -208,7 +206,6 @@ app.patch("/users/role/:id", verifyToken, verifyAdmin, async (req, res) => {
     const id = req.params.id;
     const { role } = req.body;
 
-    // Ensure the ID is a valid ObjectId
     if (!ObjectId.isValid(id)) {
         return res.status(400).send({ message: 'Invalid User ID' });
     }
@@ -273,13 +270,23 @@ app.get("/contests/creator/:email", verifyToken, async (req, res) => {
     res.send(contests);
 });
 
+
 app.get("/contests/approved", async (req, res) => {
-    const { type } = req.query;
+    const { type, search } = req.query;
     let query = { status: 'Confirmed' };
     if (type && type !== 'All') {
         query.type = type;
     }
-    const contests = await contestsCollection.find(query).sort({ participantsCount: -1 }).toArray();
+    if (search) {
+        query.$or = [
+            { name: { $regex: search, $options: 'i' } },
+            { creatorName: { $regex: search, $options: 'i' } }
+        ];
+    }
+    const contests = await contestsCollection.find(query)
+        .sort({ participantsCount: -1 })
+        .toArray();
+
     res.send(contests);
 });
 app.get("/contests/closed", async (req, res) => {
@@ -373,14 +380,8 @@ app.patch("/contests/status/:id", verifyToken, verifyAdmin, async (req, res) => 
 app.post('/create-checkout-session', async (req, res) => {
     const paymentInfo = req.body;
     const amount = parseInt(paymentInfo.entryFee) * 100;
-
-    // *** IMPORTANT: Retrieve the returnPath from the request body ***
     const { returnPath } = paymentInfo;
-
-    // Encode the returnPath to safely include it in the URL
     const encodedReturnPath = encodeURIComponent(returnPath);
-
-    // Construct the success_url to include both the session ID and the returnPath
     const successUrl = `${process.env.DOMAIN_URL}/return/payment-success?session_id={CHECKOUT_SESSION_ID}&return_to=${encodedReturnPath}`;
 
     const session = await stripe.checkout.sessions.create({
@@ -401,7 +402,6 @@ app.post('/create-checkout-session', async (req, res) => {
             contestId: paymentInfo.contestId
         },
         customer_email: paymentInfo.participantEmail,
-        // *** MODIFIED success_url ***
         success_url: successUrl,
         cancel_url: `${process.env.DOMAIN_URL}/return/payment-cancel`,
     });
@@ -416,33 +416,25 @@ app.post('/verify-payment', async (req, res) => {
     }
 
     try {
-        // 1. Retrieve the session from Stripe
         const session = await stripe.checkout.sessions.retrieve(sessionId);
-
-        // 2. Check payment status
         if (session.payment_status === 'paid') {
             const contestId = session.metadata.contestId;
             const participantEmail = session.customer_email;
-
-            // 3. Check if participation is already recorded (for idempotency)
             const existingParticipation = await participatedCollection.findOne({
                 contestId,
                 participantEmail
             });
 
             if (!existingParticipation) {
-                // 4. Log the successful participation in the database
                 const participationInfo = {
                     contestId,
                     participantEmail,
-                    transactionId: session.payment_intent, // The Payment Intent ID
+                    transactionId: session.payment_intent,
                     paymentTime: new Date(),
-                    price: session.amount_total / 100 // Convert from cents to dollars
+                    price: session.amount_total / 100
                 };
 
                 await participatedCollection.insertOne(participationInfo);
-
-                // 5. Update Contest and User participation counts
                 await contestsCollection.updateOne(
                     { _id: new ObjectId(contestId) },
                     { $inc: { participantsCount: 1 } }
@@ -453,8 +445,6 @@ app.post('/verify-payment', async (req, res) => {
                     { $inc: { participatedCount: 1 } }
                 );
             }
-
-            // 6. Return success status and the verified transaction details
             res.status(200).send({
                 status: 'succeeded',
                 paymentIntentId: session.payment_intent,
@@ -462,12 +452,10 @@ app.post('/verify-payment', async (req, res) => {
             });
 
         } else {
-            // Payment was not paid
             res.status(200).send({ status: session.payment_status, message: 'Payment not successful' });
         }
     } catch (error) {
         console.error("Stripe verification failed:", error);
-        // Handle common Stripe errors (e.g., invalid session ID)
         res.status(500).send({ status: 'error', message: 'Failed to verify payment' });
     }
 });
@@ -573,7 +561,7 @@ app.get("/submissions/creator/:email", verifyToken, verifyCreator, async (req, r
             contestName: contest?.name || sub.contestName
         };
     });
-
+    console.log(mergedSubmissions);
     res.send(mergedSubmissions);
 });
 
@@ -589,8 +577,6 @@ app.get("/submissions/check/:contestId", verifyToken, async (req, res) => {
         contestId,
         participantEmail: email
     });
-
-    // Return true if a submission is found, false otherwise
     res.send({ hasSubmitted: !!submission });
 });
 
