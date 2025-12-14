@@ -4,6 +4,8 @@ dotenv.config();
 import express from "express";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
+import Stripe from 'stripe';
+const stripe = Stripe(process.env.STRIPE_SICRET);
 import jwt from "jsonwebtoken";
 
 const app = express();
@@ -365,6 +367,110 @@ app.patch("/contests/status/:id", verifyToken, verifyAdmin, async (req, res) => 
 // -------------------------------------------------
 // 4. Participation/Payment Endpoints
 // -------------------------------------------------
+
+// ... in index.js around line 316
+
+app.post('/create-checkout-session', async (req, res) => {
+    const paymentInfo = req.body;
+    const amount = parseInt(paymentInfo.entryFee) * 100;
+
+    // *** IMPORTANT: Retrieve the returnPath from the request body ***
+    const { returnPath } = paymentInfo;
+
+    // Encode the returnPath to safely include it in the URL
+    const encodedReturnPath = encodeURIComponent(returnPath);
+
+    // Construct the success_url to include both the session ID and the returnPath
+    const successUrl = `${process.env.DOMAIN_URL}/return/payment-success?session_id={CHECKOUT_SESSION_ID}&return_to=${encodedReturnPath}`;
+
+    const session = await stripe.checkout.sessions.create({
+        line_items: [
+            {
+                price_data: {
+                    currency: "USD",
+                    unit_amount: amount,
+                    product_data: {
+                        name: `Pay to participate in this contest: ${paymentInfo.contestName}`
+                    }
+                },
+                quantity: 1,
+            },
+        ],
+        mode: 'payment',
+        metadata: {
+            contestId: paymentInfo.contestId
+        },
+        customer_email: paymentInfo.participantEmail,
+        // *** MODIFIED success_url ***
+        success_url: successUrl,
+        cancel_url: `${process.env.DOMAIN_URL}/return/payment-cancel`,
+    });
+    res.send({ url: session.url });
+});
+
+app.post('/verify-payment', async (req, res) => {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+        return res.status(400).send({ status: 'error', message: 'Missing session ID' });
+    }
+
+    try {
+        // 1. Retrieve the session from Stripe
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+        // 2. Check payment status
+        if (session.payment_status === 'paid') {
+            const contestId = session.metadata.contestId;
+            const participantEmail = session.customer_email;
+
+            // 3. Check if participation is already recorded (for idempotency)
+            const existingParticipation = await participatedCollection.findOne({
+                contestId,
+                participantEmail
+            });
+
+            if (!existingParticipation) {
+                // 4. Log the successful participation in the database
+                const participationInfo = {
+                    contestId,
+                    participantEmail,
+                    transactionId: session.payment_intent, // The Payment Intent ID
+                    paymentTime: new Date(),
+                    price: session.amount_total / 100 // Convert from cents to dollars
+                };
+
+                await participatedCollection.insertOne(participationInfo);
+
+                // 5. Update Contest and User participation counts
+                await contestsCollection.updateOne(
+                    { _id: new ObjectId(contestId) },
+                    { $inc: { participantsCount: 1 } }
+                );
+
+                await usersCollection.updateOne(
+                    { email: participantEmail },
+                    { $inc: { participatedCount: 1 } }
+                );
+            }
+
+            // 6. Return success status and the verified transaction details
+            res.status(200).send({
+                status: 'succeeded',
+                paymentIntentId: session.payment_intent,
+                contestId: contestId
+            });
+
+        } else {
+            // Payment was not paid
+            res.status(200).send({ status: session.payment_status, message: 'Payment not successful' });
+        }
+    } catch (error) {
+        console.error("Stripe verification failed:", error);
+        // Handle common Stripe errors (e.g., invalid session ID)
+        res.status(500).send({ status: 'error', message: 'Failed to verify payment' });
+    }
+});
 
 app.get("/participated/check/:contestId", verifyToken, async (req, res) => {
     const { contestId } = req.params;
