@@ -272,6 +272,10 @@ app.get("/contests/creator/:email", verifyToken, async (req, res) => {
 
 
 app.get("/contests/approved", async (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 9;
+    const skip = (page - 1) * limit;
+
     const { type, search } = req.query;
     let query = { status: 'Confirmed' };
     if (type && type !== 'All') {
@@ -283,20 +287,33 @@ app.get("/contests/approved", async (req, res) => {
             { creatorName: { $regex: search, $options: 'i' } }
         ];
     }
+    const totalCount = await contestsCollection.countDocuments(query);
     const contests = await contestsCollection.find(query)
         .sort({ participantsCount: -1 })
+        .skip(skip)
+        .limit(limit)
         .toArray();
-
-    res.send(contests);
+    res.send({ contests, totalCount });
 });
+
 app.get("/contests/closed", async (req, res) => {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 9;
+    const skip = (page - 1) * limit;
+
     const { type } = req.query;
     let query = { status: 'Closed' };
     if (type && type !== 'All') {
         query.type = type;
     }
-    const contests = await contestsCollection.find(query).sort({ participantsCount: -1 }).toArray();
-    res.send(contests);
+
+    const totalCount = await contestsCollection.countDocuments(query);
+    const contests = await contestsCollection.find(query)
+        .sort({ participantsCount: -1 })
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+    res.send({ contests, totalCount });
 });
 
 app.get("/contests/popular", async (req, res) => {
