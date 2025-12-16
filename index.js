@@ -575,10 +575,10 @@ app.get("/submissions/creator/:email", verifyToken, verifyCreator, async (req, r
         const contest = creatorContests.find(c => c._id.toString() === sub.contestId);
         return {
             ...sub,
-            contestName: contest?.name || sub.contestName
+            contestName: contest?.name || sub.contestName,
+            deadline: contest?.deadline
         };
     });
-    console.log(mergedSubmissions);
     res.send(mergedSubmissions);
 });
 
