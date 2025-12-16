@@ -399,7 +399,7 @@ app.post('/create-checkout-session', async (req, res) => {
     const amount = parseInt(paymentInfo.entryFee) * 100;
     const { returnPath } = paymentInfo;
     const encodedReturnPath = encodeURIComponent(returnPath);
-    const successUrl = `${process.env.DOMAIN_URL}/return/payment-success?session_id={CHECKOUT_SESSION_ID}&return_to=${encodedReturnPath}`;
+    const successUrl = `${process.env.SITE_DOMAIN_URL}/return/payment-success?session_id={CHECKOUT_SESSION_ID}&return_to=${encodedReturnPath}`;
 
     const session = await stripe.checkout.sessions.create({
         line_items: [
@@ -420,7 +420,7 @@ app.post('/create-checkout-session', async (req, res) => {
         },
         customer_email: paymentInfo.participantEmail,
         success_url: successUrl,
-        cancel_url: `${process.env.DOMAIN_URL}/return/payment-cancel`,
+        cancel_url: `${process.env.SITE_DOMAIN_URL}/return/payment-cancel`,
     });
     res.send({ url: session.url });
 });
